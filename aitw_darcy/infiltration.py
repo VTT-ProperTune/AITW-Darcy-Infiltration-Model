@@ -145,12 +145,7 @@ def run_simulation(parameters: Params, output_dir: str = '.'):
     # Initialize the Newton solver
     problem = NonlinearProblem(F, u, bcs)
     # solver = NewtonSolver(MPI.COMM_WORLD, problem)
-    solver = NewtonSolver(
-        MPI.COMM_WORLD, problem,
-        petsc_options={
-            'pc_factor_mat_solver_type': 'mumps',
-        }
-    )
+    solver = NewtonSolver(MPI.COMM_WORLD, problem)
     # Solution is rather sensitive to tolerance,
     # numerical accuracy seems to be close to 1e-11
     solver.rtol = 0

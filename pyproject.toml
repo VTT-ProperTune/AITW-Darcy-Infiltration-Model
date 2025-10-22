@@ -7,8 +7,10 @@ build-backend = "flit_core.buildapi"
 # See https://www.python.org/dev/peps/pep-0621/
 name = "AITW_darcy_infiltration"
 dynamic = ["version"]
-description = "TODO"
-authors = []
+description = "Code for simulating infiltration processes in porous materials using the FEniCSx finite element framework."
+authors = [
+    { name = "Royson Donate Dsouza" }
+]
 readme = "README.md"
 license = { file = "LICENSE" }
 classifiers = [
@@ -18,7 +20,7 @@ classifiers = [
     "Operating System :: MacOS",
     "Programming Language :: Python",
 ]
-keywords = ["birch", "wood", "microstructure"]
+keywords = ["finite-elements", "darcy", "infiltration", "multiscale"]
 requires-python = ">=3.10"
 dependencies = [
     "rich_click",
@@ -31,8 +33,8 @@ dependencies = [
     "fenics-basix",
 ]
 
-# [project.urls]
-# Source = ""
+[project.urls]
+Source = "https://github.com/VTT-ProperTune/AITW-Darcy-Infiltration-Model"
 
 [project.optional-dependencies]
 pre-commit = [

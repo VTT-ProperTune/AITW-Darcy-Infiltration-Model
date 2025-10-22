@@ -1,4 +1,3 @@
-# from .birch import birch
 import click as original_click
 import rich_click as click
 from rich.traceback import install

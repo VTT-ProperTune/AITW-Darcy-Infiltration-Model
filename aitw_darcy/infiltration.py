@@ -1,26 +1,24 @@
-from matplotlib import pyplot
-import numpy as np
-from tqdm import trange, tqdm
-
-from petsc4py import PETSc
-from mpi4py import MPI
-
-import ufl
-from ufl import dot, grad, dx, exp, inner, sqrt, erf, cos, pi
-from dolfinx import fem, mesh, io, default_scalar_type, log
-from dolfinx.fem.petsc import NonlinearProblem
-from dolfinx.nls.petsc import NewtonSolver
-from basix.ufl import element
-
 import sys
 from runpy import run_path
+
+import numpy as np
+import ufl
+from basix.ufl import element
+from dolfinx import default_scalar_type, fem, io, log, mesh
+from dolfinx.fem.petsc import NonlinearProblem
+from dolfinx.nls.petsc import NewtonSolver
+from matplotlib import pyplot
+from mpi4py import MPI
+from petsc4py import PETSc
+from tqdm import tqdm, trange
+from ufl import cos, dot, dx, erf, exp, grad, inner, pi, sqrt
 
 # Inject the variables from the parameter file to the global namespace
 try:
     param_file = sys.argv[1]
     params = run_path(param_file)
 except:
-    error("Please provide the parameter file (.py) in the working directory!")
+    error('Please provide the parameter file (.py) in the working directory!')
 
 for k, v in params.items():
     if not k.startswith('_'):
@@ -57,7 +55,7 @@ t = fem.Constant(domain, default_scalar_type(0))
 Δt = fem.Constant(domain, default_scalar_type(Δt0))
 
 # Create function space
-P1 = element("Lagrange", domain.basix_cell(), 1)
+P1 = element('Lagrange', domain.basix_cell(), 1)
 V = fem.functionspace(domain, P1)
 
 # Unknown solution (t=n+1)
@@ -127,9 +125,9 @@ if __name__ == '__main__':
 
     # Use mumps LU solver
     ksp = solver.krylov_solver
-    ksp.setType("preonly")
-    ksp.getPC().setType("lu")
-    ksp.getPC().setFactorSolverType("mumps")
+    ksp.setType('preonly')
+    ksp.getPC().setType('lu')
+    ksp.getPC().setFactorSolverType('mumps')
 
     # Solutions at each time step
     sol = [u.x.array.copy()]
@@ -162,7 +160,7 @@ if __name__ == '__main__':
                     solver.relaxation_parameter = 0.4
                     Δt.value = Δt.value * 0.5
                     if Δt.value < Δt_min:
-                        raise Error("Minimum timestep size reached!")
+                        raise Error('Minimum timestep size reached!')
                     u.x.array[:] = u_n.x.array
                     log.log(log.LogLevel.INFO, f'Timestep = {Δt.value}')
 

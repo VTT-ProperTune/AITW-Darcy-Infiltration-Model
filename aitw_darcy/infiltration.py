@@ -1,5 +1,5 @@
-import sys
-from runpy import run_path
+"""Module for running infiltration simulation using Darcy's law."""
+import os
 
 import numpy as np
 import ufl
@@ -7,113 +7,150 @@ from basix.ufl import element
 from dolfinx import default_scalar_type, fem, io, log, mesh
 from dolfinx.fem.petsc import NonlinearProblem
 from dolfinx.nls.petsc import NewtonSolver
-from matplotlib import pyplot
+# from matplotlib import pyplot
 from mpi4py import MPI
-from petsc4py import PETSc
-from tqdm import tqdm, trange
-from ufl import cos, dot, dx, erf, exp, grad, inner, pi, sqrt
+# from petsc4py import PETSc
+from tqdm import tqdm
+from ufl import cos, dot, dx, erf, grad, pi, sqrt
 
-# Inject the variables from the parameter file to the global namespace
-try:
-    param_file = sys.argv[1]
-    params = run_path(param_file)
-except:
-    error('Please provide the parameter file (.py) in the working directory!')
-
-for k, v in params.items():
-    if not k.startswith('_'):
-        globals()[k] = v
+from .data import Params
 
 
-# Output
-solution_file = f'{label}_solution.npy'   # Full solution
-output_file = f'{label}_output.bp'        # VTX mesh for visualization
+def run_simulation(parameters: Params, output_dir: str = '.'):
+    """ Run the infiltration simulation with given parameters"""
+    label = parameters.label
+    xmin = parameters.xmin
+    xmax = parameters.xmax
+    ymin = parameters.ymin
+    ymax = parameters.ymax
+    zmin = parameters.zmin
+    zmax = parameters.zmax
+    nx = parameters.nx
+    ny = parameters.ny
+    nz = parameters.nz
+    delta_t0 = parameters.delta_t0
+    delta_tmin = parameters.delta_tmin
+    delta_tmax = parameters.delta_tmax
+    t_end = parameters.t_end
 
-log.set_output_file(f'{label}.log')
-log.set_log_level(log.LogLevel.INFO)
+    porosity_phi = parameters.porosity
+    surf_tens_gamma = parameters.surface_tension
+    c_ang = parameters.contact_angle
 
-# Helper functions
+    mean_pore_radius = parameters.mean_pore_radius
+    rstd = parameters.rstd
 
-def get_variable_value(v):
-    """ Get the nodal values for an expression v """
-    q = fem.Function(V)
-    q.interpolate(fem.Expression(v, V.element.interpolation_points()))
-    return q.x.array
+    r_cutoff = parameters.r_cutoff
 
-def ramp_up(val=1, t1=0.1):
-    """ Linear ramp from zero beginning for t = 0, useful to assist convergence in the beginning """
-    return val*ufl.min_value(1, t/t1)
+    k_long = parameters.k_long
+    k_trans = parameters.k_trans
 
-# Generate 3D mesh
-domain = mesh.create_box(MPI.COMM_WORLD, [[xmin, ymin, zmin], [xmax, ymax, zmax]], [nx, ny, nz],
-                         mesh.CellType.hexahedron)
+    viscosity = parameters.viscosity
+    u_ext = parameters.u_ext
 
-x = ufl.SpatialCoordinate(domain)
 
-# Current time and time step size
-t = fem.Constant(domain, default_scalar_type(0))
-Δt = fem.Constant(domain, default_scalar_type(Δt0))
+    # Output
+    solution_file = f'{label}_solution.npy'   # Full solution
+    output_file = f'{label}_output.bp'        # VTX mesh for visualization
 
-# Create function space
-P1 = element('Lagrange', domain.basix_cell(), 1)
-V = fem.functionspace(domain, P1)
+    # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+    solution_file = os.path.join(output_dir, solution_file)
+    output_file = os.path.join(output_dir, output_file)
+    log_file = os.path.join(output_dir, f'{label}.log')
 
-# Unknown solution (t=n+1)
-u = fem.Function(V, name='u')
+    log.set_output_file(log_file)
+    log.set_log_level(log.LogLevel.INFO)
 
-# Previous time step solution
-u_n = fem.Function(V, name='u_n')
+    # Helper functions
 
-# Saturation curve
-def S_curve(r):
-    σ = rstd*r_μ
-    return 1/2*(erf((r-r_μ)/(sqrt(2)*σ)) - erf((r_cutoff-r_μ)/(sqrt(2)*σ)))
+    def get_variable_value(v):
+        """ Get the nodal values for an expression v """
+        q = fem.Function(V)
+        q.interpolate(fem.Expression(v, V.element.interpolation_points()))
+        return q.x.array
 
-# Capillary radius
-θ = θdeg*pi/180
-r_c = -2*γ*cos(θ)/u
+    def ramp_up(val=1, t1=0.1):
+        """ Linear ramp from zero beginning for t = 0, useful to assist convergence in the beginning """
+        return val*ufl.min_value(1, t/t1)
 
-# Saturation
-#S = ufl.conditional(u < 0, S_curve(r_c), 1.0)
-S = S_curve(r_c)
+    # Generate 3D mesh
+    domain = mesh.create_box(
+        MPI.COMM_WORLD,
+        [[xmin, ymin, zmin], [xmax, ymax, zmax]], [nx, ny, nz],
+        mesh.CellType.hexahedron
+    )
 
-# Previous saturation
-S_n = ufl.replace(S, {u: u_n})
+    x = ufl.SpatialCoordinate(domain)
 
-# Flux
-k = ufl.as_tensor([[k_long, 0, 0], [0, k_trans, 0], [0, 0, k_trans]])
-k_s = 1 + ramp_up(-1+S)
-J = -k_s*k/μ*grad(u)
+    # Current time and time step size
+    t = fem.Constant(domain, default_scalar_type(0))
+    delta_t = fem.Constant(domain, default_scalar_type(delta_t0))
 
-###############
-# Weak form
-###############
+    # Create function space
+    P1 = element('Lagrange', domain.basix_cell(), 1)
+    V = fem.functionspace(domain, P1)
 
-δu = ufl.TestFunction(V)
+    # Unknown solution (t=n+1)
+    u = fem.Function(V, name='u')
 
-F = δu * ϕ*(S - S_n) * dx - Δt*dot(grad(δu), J) * dx
+    # Previous time step solution
+    u_n = fem.Function(V, name='u_n')
 
-# Direchlet boundary conditions
+    # Saturation curve
+    def S_curve(r):
+        sigma = rstd*mean_pore_radius
+        return 1/2*(erf((r-mean_pore_radius)/(sqrt(2)*sigma)) - erf((r_cutoff-mean_pore_radius)/(sqrt(2)*sigma)))
 
-fdim = domain.topology.dim - 1
-domain.topology.create_connectivity(fdim, fdim+1)
-boundary_facets = mesh.exterior_facet_indices(domain.topology)
-boundary_dofs = fem.locate_dofs_topological(V, fdim, boundary_facets)
-bc = fem.dirichletbc(default_scalar_type(u_ext), boundary_dofs, V)
-bcs = [bc]
+    # Capillary radius
+    theta = c_ang*pi/180
+    r_c = -2*surf_tens_gamma*cos(theta)/u
 
-# Initial pressure
-u0 = -2*γ*cos(θ)/r_cutoff
+    # Saturation
+    #S = ufl.conditional(u < 0, S_curve(r_c), 1.0)
+    S = S_curve(r_c)
 
-if __name__ == '__main__':
+    # Previous saturation
+    S_n = ufl.replace(S, {u: u_n})
+
+    # Flux
+    k = ufl.as_tensor([[k_long, 0, 0], [0, k_trans, 0], [0, 0, k_trans]])
+    k_s = 1 + ramp_up(-1+S)
+    J = -k_s*k/viscosity*grad(u)
+
+    ###############
+    # Weak form
+    ###############
+
+    delta_u = ufl.TestFunction(V)
+
+    F = delta_u * porosity_phi*(S - S_n) * dx - delta_t*dot(grad(delta_u), J) * dx
+
+    # Direchlet boundary conditions
+
+    fdim = domain.topology.dim - 1
+    domain.topology.create_connectivity(fdim, fdim+1)
+    boundary_facets = mesh.exterior_facet_indices(domain.topology)
+    boundary_dofs = fem.locate_dofs_topological(V, fdim, boundary_facets)
+    bc = fem.dirichletbc(default_scalar_type(u_ext), boundary_dofs, V)
+    bcs = [bc]
+
+    # Initial pressure
+    u0 = -2*surf_tens_gamma*cos(theta)/r_cutoff
+
     # Initial moisture content
     u.interpolate(lambda x: np.full(x[0].shape, u0))
     u.x.array[boundary_dofs] = u_ext
 
     # Initialize the Newton solver
     problem = NonlinearProblem(F, u, bcs)
-    solver = NewtonSolver(MPI.COMM_WORLD, problem)
-
+    # solver = NewtonSolver(MPI.COMM_WORLD, problem)
+    solver = NewtonSolver(
+        MPI.COMM_WORLD, problem,
+        petsc_options={
+            'pc_factor_mat_solver_type': 'mumps',
+        }
+    )
     # Solution is rather sensitive to tolerance,
     # numerical accuracy seems to be close to 1e-11
     solver.rtol = 0
@@ -150,28 +187,28 @@ if __name__ == '__main__':
                 if converged:
                     solver.relaxation_parameter = 0.8
                     if n <= 3:
-                        Δt.value = min(Δt.value * 1.2, Δt_max)
-                        log.log(log.LogLevel.INFO, f'Timestep = {Δt.value}')
+                        delta_t.value = min(delta_t.value * 1.2, delta_tmax)
+                        log.log(log.LogLevel.INFO, f'Timestep = {delta_t.value}')
                     elif n >= 7:
-                        Δt.value = Δt.value * 0.5
-                        log.log(log.LogLevel.INFO, f'Timestep = {Δt.value}')
+                        delta_t.value = delta_t.value * 0.5
+                        log.log(log.LogLevel.INFO, f'Timestep = {delta_t.value}')
                     break
                 else:
                     solver.relaxation_parameter = 0.4
-                    Δt.value = Δt.value * 0.5
-                    if Δt.value < Δt_min:
-                        raise Error('Minimum timestep size reached!')
+                    delta_t.value = delta_t.value * 0.5
+                    if delta_t.value < delta_tmin:
+                        raise RuntimeError('Minimum timestep size reached!')
                     u.x.array[:] = u_n.x.array
-                    log.log(log.LogLevel.INFO, f'Timestep = {Δt.value}')
+                    log.log(log.LogLevel.INFO, f'Timestep = {delta_t.value}')
 
-            t.value += Δt.value
+            t.value += delta_t.value
 
             # Record values
             sol.append(u.x.array.copy())
             times.append(t.value.item())
 
             if domain.comm.rank == 0:
-                pbar.update(Δt.value)
+                pbar.update(delta_t.value)
 
             # Save output
             S_func.interpolate(fem.Expression(S, V.element.interpolation_points()))

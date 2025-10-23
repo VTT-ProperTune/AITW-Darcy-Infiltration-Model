@@ -28,9 +28,9 @@ dependencies = [
     "numpy",
 
     "mpi4py",
-    "petsc4py",
-    "fenics-ufl",
-    "fenics-basix",
+    "petsc4py==3.22.2",
+    "fenics-ufl==2024.2.0",
+    "fenics-basix==0.9.0",
 ]
 
 [project.urls]

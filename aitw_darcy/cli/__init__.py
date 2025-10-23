@@ -23,4 +23,6 @@ def infiltration(
     from aitw_darcy.infiltration import run_simulation
 
     params = Params.from_json(json_file)
-    run_simulation(params, output_dir=output_dir)
+    if output_dir is not None:
+        params.output_dir = output_dir
+    run_simulation(params)

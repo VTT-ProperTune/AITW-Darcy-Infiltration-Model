@@ -16,7 +16,7 @@ from ufl import cos, dot, dx, erf, grad, pi, sqrt
 from .data import Params
 
 
-def run_simulation(parameters: Params, output_dir: str = '.'):
+def run_simulation(parameters: Params):
     """ Run the infiltration simulation with given parameters"""
     label = parameters.label
     xmin = parameters.xmin
@@ -48,6 +48,7 @@ def run_simulation(parameters: Params, output_dir: str = '.'):
     viscosity = parameters.viscosity
     u_ext = parameters.u_ext
 
+    output_dir = parameters.output_dir
 
     # Output
     solution_file = f'{label}_solution.npy'   # Full solution
@@ -58,6 +59,10 @@ def run_simulation(parameters: Params, output_dir: str = '.'):
     solution_file = os.path.join(output_dir, solution_file)
     output_file = os.path.join(output_dir, output_file)
     log_file = os.path.join(output_dir, f'{label}.log')
+
+    # Save input parameters to output directory for reproducibility
+    reprod_file = os.path.join(output_dir, f'reprod.json')
+    parameters.to_json(reprod_file)
 
     log.set_output_file(log_file)
     log.set_log_level(log.LogLevel.INFO)

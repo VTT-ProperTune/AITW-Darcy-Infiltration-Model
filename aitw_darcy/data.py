@@ -6,6 +6,7 @@ from dataclasses import dataclass
 class Params:
     # Label for the simulation
     label: str = '3d_plate'
+    output_dir: str = '.'
 
     # Mesh dimensions (m)
     xmin: float = 0
